@@ -12,13 +12,29 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
 
+      # A release published earlier (e.g. with build\release.ps1) is never replaced: people may already
+      # have downloaded and checksum-checked that installer.
+      - name: Check for an existing release
+        id: existing
+        shell: pwsh
+        run: |
+          gh release view '${{ github.ref_name }}' --repo '${{ github.repository }}' *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "::notice::${{ github.ref_name }} is already published - leaving it as it is."
+            "exists=true" >> $env:GITHUB_OUTPUT
+          } else { "exists=false" >> $env:GITHUB_OUTPUT }
+          exit 0
+
       - name: Build installer
+        if: steps.existing.outputs.exists == 'false'
         shell: pwsh
         run: |
           $version = '${{ github.ref_name }}'.TrimStart('v')
@@ -30,8 +46,7 @@ jobs:
           "MSI=$msi" >> $env:GITHUB_ENV
 
       - name: Publish release
+        if: steps.existing.outputs.exists == 'false'
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           gh release create '${{ github.ref_name }}' $env:MSI "$env:MSI.sha256" --title "Gaming Mode ${{ github.ref_name }}" --generate-notes

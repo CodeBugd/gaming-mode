@@ -23,9 +23,11 @@ try {
     $hash = (Get-FileHash $msi -Algorithm SHA256).Hash.ToLower()
     "$hash  GamingMode-$Version-x64.msi" | Set-Content -NoNewline -Encoding ascii "$msi.sha256"
 
-    if (-not $existing) { git tag $tag; git push origin $tag }
-    & $gh release create $tag $msi "$msi.sha256" --title "Gaming Mode $tag" --generate-notes
+    # Creates the tag and the release together, so the Release workflow (which the tag triggers) finds it
+    # already published and leaves it alone instead of racing this script.
+    & $gh release create $tag $msi "$msi.sha256" --target (git rev-parse HEAD) --title "Gaming Mode $tag" --generate-notes
     if ($LASTEXITCODE -ne 0) { throw "Creating the GitHub release failed." }
+    git fetch origin --tags --quiet
     Write-Host "Released $tag - installed copies will pick it up within 12 hours (or via Check for updates)." -ForegroundColor Green
 }
 finally { Pop-Location }
