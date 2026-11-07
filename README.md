@@ -52,6 +52,8 @@ The **Release** workflow runs the tests, builds the MSI and publishes it with a 
 
 The version comes from the tag; `Directory.Build.props` only sets the version of local builds.
 
+No GitHub Actions? `build\release.ps1 -Version 1.2.0` does the same from your PC (tests, MSI, checksum, tag, release).
+
 ## Not done yet
 
 - **Code signing.** Unsigned, so Windows SmartScreen warns when someone downloads the MSI, and antivirus may be suspicious of a service that changes other processes. Azure Trusted Signing is the cheapest legit option. It also matters for updates: today the checksum only proves the download wasn't corrupted, so anyone who gets into this GitHub account could ship an update. Once releases are signed, the updater should also require the signature.
