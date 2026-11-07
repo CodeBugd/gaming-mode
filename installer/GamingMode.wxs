@@ -1,0 +1,70 @@
+<!--
+  Per-machine MSI for AceBot Gaming Mode (WiX Toolset 5, pinned in .config/dotnet-tools.json).
+  Installs to Program Files\AceBot\Gaming Mode, registers the "AceBotGamingMode" service (runs as LocalSystem and does
+  the admin work), starts the tray icon at sign-in, and adds Start menu + desktop shortcuts.
+  Uninstalling stops the service, which turns Gaming Mode off and puts every setting back first.
+  Settings and the log in %ProgramData%\AceBot\GamingMode are kept, so a reinstall remembers your choices.
+  Build: powershell -ExecutionPolicy Bypass -File build\publish.ps1 -Version X.Y.Z -Installer
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="AceBot Gaming Mode" Manufacturer="AceBot" Version="$(Version)" Scope="perMachine"
+           UpgradeCode="{595410E5-C70E-41D3-9032-D8C934D222F3}" Compressed="yes" InstallerVersion="500">
+    <SummaryInformation Description="One-click Gaming Mode for Windows" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Gaming Mode is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AppIcon" SourceFile="$(IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPCOMMENTS" Value="Pushes background apps to the back while you game or stream, and puts everything back when you're done." />
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="AceBotFolder" Name="AceBot">
+        <Directory Id="INSTALLFOLDER" Name="Gaming Mode" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Component Id="MainExe" Directory="INSTALLFOLDER" Bitness="always64">
+      <File Id="GamingModeExe" Source="$(PublishDir)\GamingMode.exe" KeyPath="yes" />
+      <ServiceInstall Id="GamingModeService" Name="AceBotGamingMode" DisplayName="AceBot Gaming Mode"
+                      Description="Does the admin work for the Gaming Mode tray icon: slows background apps and pauses background tasks while Gaming Mode is on, and puts everything back afterwards."
+                      Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" Arguments="--service" Vital="yes" />
+      <ServiceControl Id="GamingModeServiceControl" Name="AceBotGamingMode" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      <!-- tray icon at sign-in, for every user -->
+      <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Run" Name="AceBot Gaming Mode"
+                     Type="string" Value="&quot;[INSTALLFOLDER]GamingMode.exe&quot;" />
+    </Component>
+
+    <Component Id="StartMenuShortcuts" Directory="ProgramMenuFolder" Bitness="always64">
+      <Shortcut Id="StartToggle" Name="Gaming Mode" Description="Turn Gaming Mode on or off"
+                Target="[INSTALLFOLDER]GamingMode.exe" Arguments="--toggle" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+      <Shortcut Id="StartSettings" Name="Gaming Mode Settings" Description="Choose what Gaming Mode protects and does"
+                Target="[INSTALLFOLDER]GamingMode.exe" Arguments="--settings" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+      <RegistryValue Root="HKLM" Key="SOFTWARE\AceBot\GamingMode" Name="StartMenuShortcuts" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="DesktopShortcut" Directory="DesktopFolder" Bitness="always64">
+      <Shortcut Id="DesktopToggle" Name="Gaming Mode" Description="Turn Gaming Mode on or off"
+                Target="[INSTALLFOLDER]GamingMode.exe" Arguments="--toggle" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+      <RegistryValue Root="HKLM" Key="SOFTWARE\AceBot\GamingMode" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Close running tray icons before files are replaced/removed; start one for the installing user afterwards. -->
+    <CustomAction Id="CloseTrays" FileRef="GamingModeExe" ExeCommand="--close-tray" Execute="immediate" Return="ignore" />
+    <CustomAction Id="LaunchTray" FileRef="GamingModeExe" ExeCommand="--tray" Execute="immediate" Return="asyncNoWait" Impersonate="yes" />
+    <InstallExecuteSequence>
+      <Custom Action="CloseTrays" Before="InstallValidate" Condition="Installed" />
+      <!-- Not for silent (auto-update) installs: those run as SYSTEM, and the service restarts the tray as the signed-in user. -->
+      <Custom Action="LaunchTray" After="InstallFinalize" Condition="NOT REMOVE AND UILevel &gt; 2" />
+    </InstallExecuteSequence>
+
+    <Feature Id="Main" Title="Gaming Mode" Level="1">
+      <ComponentRef Id="MainExe" />
+      <ComponentRef Id="StartMenuShortcuts" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+  </Package>
+</Wix>

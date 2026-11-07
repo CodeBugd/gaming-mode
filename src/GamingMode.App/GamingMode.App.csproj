@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>GamingMode</AssemblyName>
+    <RootNamespace>GamingMode.App</RootNamespace>
+    <ApplicationIcon>..\..\assets\GamingMode.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <ApplicationUseCompatibleTextRendering>false</ApplicationUseCompatibleTextRendering>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\assets\GamingMode.ico" LogicalName="GamingMode.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\GamingMode.Core\GamingMode.Core.csproj" />
+  </ItemGroup>
+</Project>

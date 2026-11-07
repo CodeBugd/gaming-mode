@@ -1,0 +1,37 @@
+# Push a tag like v1.2.0 -> tests, build the MSI, publish a GitHub Release.
+# Installed copies of Gaming Mode pick it up automatically (within 12 hours, or via "Check for updates").
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Tag must look like v1.2.3" }
+          ./build/publish.ps1 -Version $version -Installer
+          $msi = "artifacts/GamingMode-$version-x64.msi"
+          $hash = (Get-FileHash $msi -Algorithm SHA256).Hash.ToLower()
+          "$hash  GamingMode-$version-x64.msi" | Set-Content -NoNewline "$msi.sha256"
+          "MSI=$msi" >> $env:GITHUB_ENV
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ github.ref_name }}' $env:MSI "$env:MSI.sha256" --title "Gaming Mode ${{ github.ref_name }}" --generate-notes

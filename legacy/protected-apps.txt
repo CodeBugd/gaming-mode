@@ -1,0 +1,162 @@
+# Gaming Mode - protected apps
+# Anything matched here is NEVER throttled. Everything else you're running gets pushed to the back.
+#
+#   name:  process name without .exe, case-insensitive, * wildcards allowed   (e.g.  discord, voicemeeter*)
+#   path:  any process whose .exe path contains this text                    (e.g.  path:\steamapps\)
+#
+# Add your own lines at the bottom. Lines starting with # are ignored.
+
+# ---- Game folders (covers every game installed in these, no need to list games one by one)
+path:\steamapps\
+path:\Epic Games\
+path:\Riot Games\
+path:\XboxGames\
+path:\GOG Games\
+path:\GOG Galaxy\
+path:\EA Games\
+path:\Electronic Arts\
+path:\Ubisoft\
+path:\Battle.net\
+path:\Blizzard
+path:\Rockstar Games\
+path:\Games\
+path:\iRacing\
+path:\SimHub\
+path:\AceBot\ApexRadio\
+
+# ---- Launchers / stores
+steam
+steamwebhelper
+steamservice
+gameoverlayui*
+epicgameslauncher
+epicwebhelper
+eadesktop
+eabackgroundservice
+origin*
+upc
+ubisoftconnect
+uplay*
+battle.net
+riotclient*
+leagueclient*
+galaxyclient*
+xboxpcapp
+gamingservices*
+xboxappservices
+gamebar*
+playnite.*
+socialclubhelper
+rockstarservice
+amazon games*
+
+# ---- Anti-cheat (throttling these can get you kicked)
+easyanticheat*
+beservice
+vgc
+vgtray
+faceit*
+eaanticheat*
+
+# ---- Voice chat
+discord*
+teamspeak
+ts3client*
+mumble
+guilded
+
+# ---- Streaming / recording
+obs
+obs64
+obs32
+obs-browser-page
+obs-ffmpeg-mux
+streamlabs*
+xsplit*
+twitchstudio*
+meld*
+prismlivestudio
+nvidia broadcast*
+streamdeck
+camera hub
+wavelink*
+voicemeeter*
+voicemod*
+streamer.bot
+mixitup*
+touch portal*
+vtube studio
+vseeface
+veadotube*
+path:\obs-studio\
+path:\Streamlabs
+path:\Elgato\
+path:\BEACN\
+path:\Voicemod
+beacn*
+goxlr*
+path:\TC-Helicon\
+path:\Rode\
+
+# ---- GPU, overlays, peripherals (mouse/keyboard/headset software)
+nvcontainer
+nvdisplay.container
+nvidia share
+nvidia overlay
+nvidia app
+nvsphelper64
+nvidia web helper
+radeonsoftware
+amdrsserv
+amdow
+amddvr
+rtss*
+msiafterburner
+lghub*
+icue*
+corsair*
+razer*
+rzsynapse
+steelseries*
+armourycrate*
+nzxt cam
+cam_helper
+path:\NZXT
+signalrgb
+openrgb
+hyperx*
+hypertune*
+
+# ---- Sim racing
+simhub*
+crewchief*
+iracing*
+acc
+ac2-win64-shipping
+acs
+content manager
+ams2*
+le mans ultimate
+lmu
+rrre*
+rfactor2*
+beamng*
+fanatecapp
+pit house
+moza*
+simucube*
+trading paints*
+garage61*
+racelab*
+
+# ---- VR
+vrserver
+vrmonitor
+vrcompositor
+vrdashboard
+vrwebhelper
+oculus*
+ovr*
+virtual desktop*
+
+# ---- Your own additions below (e.g. your browser if you keep stream chat open in it: chrome / msedge / firefox / brave / opera)

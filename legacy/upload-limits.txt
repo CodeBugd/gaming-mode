@@ -1,0 +1,25 @@
+# Gaming Mode - upload limits
+# While Gaming Mode is on, these apps can only UPLOAD this fast, so your stream and game keep the bandwidth.
+# Downloads aren't affected. Apps on your protected list are never capped.
+#
+#   app.exe   megabits per second
+#
+# Lines starting with # are ignored. Remove a line to stop capping that app.
+
+# Cloud sync (big uploads that kill a stream)
+OneDrive.exe        1
+Dropbox.exe         1
+GoogleDriveFS.exe   1
+iCloudDrive.exe     1
+MEGAsync.exe        1
+
+# Browsers (plenty for chat / dashboards, stops big file uploads)
+msedge.exe          3
+chrome.exe          3
+firefox.exe         3
+brave.exe           3
+opera.exe           3
+
+# Torrents
+qbittorrent.exe     1
+utorrent.exe        1
