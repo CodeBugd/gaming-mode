@@ -22,6 +22,57 @@ internal static class Native
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern bool QueryFullProcessImageNameW(IntPtr handle, int flags, StringBuilder name, ref int size);
 
+    // GPU scheduling priority (the same mechanism OBS uses to keep its own rendering smooth).
+    [DllImport("gdi32.dll")] private static extern int D3DKMTSetProcessSchedulingPriorityClass(IntPtr process, int priority);
+    [DllImport("gdi32.dll")] private static extern int D3DKMTGetProcessSchedulingPriorityClass(IntPtr process, out int priority);
+
+    // Memory priority: low-priority pages are the first to leave RAM when it runs short.
+    [StructLayout(LayoutKind.Sequential)] private struct MemoryPriorityInformation { public uint MemoryPriority; }
+    [DllImport("kernel32.dll", SetLastError = true, EntryPoint = "SetProcessInformation")]
+    private static extern bool SetProcessMemoryInfo(IntPtr handle, int infoClass, ref MemoryPriorityInformation info, int size);
+    [DllImport("kernel32.dll", SetLastError = true, EntryPoint = "GetProcessInformation")]
+    private static extern bool GetProcessMemoryInfo(IntPtr handle, int infoClass, out MemoryPriorityInformation info, int size);
+    private const int ProcessMemoryPriority = 0;
+    private const uint ProcessQueryInformation = 0x0400;
+
+    public const int GpuPriorityBelowNormal = 1;
+    public const int MemoryPriorityVeryLow = 1;
+
+    // Both GPU calls need SET_INFORMATION | QUERY_INFORMATION (less gives "access denied"), and only work on processes
+    // that actually use the GPU - others return STATUS_INVALID_PARAMETER, which we treat as "nothing to lower".
+    private const uint GpuAccess = ProcessSetInformation | ProcessQueryInformation;
+
+    public static int? GetGpuPriority(int pid)
+    {
+        int? result = null;
+        WithProcess(pid, GpuAccess, h =>
+        {
+            if (D3DKMTGetProcessSchedulingPriorityClass(h, out var p) != 0) return false;
+            result = p; return true;
+        });
+        return result;
+    }
+
+    public static bool SetGpuPriority(int pid, int priority) =>
+        WithProcess(pid, GpuAccess, h => D3DKMTSetProcessSchedulingPriorityClass(h, priority) == 0);
+
+    public static int? GetMemoryPriority(int pid)
+    {
+        int? result = null;
+        WithProcess(pid, ProcessQueryLimitedInformation | ProcessQueryInformation, h =>
+        {
+            if (!GetProcessMemoryInfo(h, ProcessMemoryPriority, out var info, Marshal.SizeOf<MemoryPriorityInformation>())) return false;
+            result = (int)info.MemoryPriority; return true;
+        });
+        return result;
+    }
+
+    public static bool SetMemoryPriority(int pid, int priority) => WithProcess(pid, ProcessSetInformation, h =>
+    {
+        var info = new MemoryPriorityInformation { MemoryPriority = (uint)priority };
+        return SetProcessMemoryInfo(h, ProcessMemoryPriority, ref info, Marshal.SizeOf<MemoryPriorityInformation>());
+    });
+
     [DllImport("powrprof.dll")] private static extern uint PowerGetActiveScheme(IntPtr root, out IntPtr scheme);
     [DllImport("powrprof.dll")] private static extern uint PowerSetActiveScheme(IntPtr root, ref Guid scheme);
     [DllImport("kernel32.dll")] private static extern IntPtr LocalFree(IntPtr mem);

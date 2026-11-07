@@ -14,6 +14,8 @@ public sealed class FeatureSet
 {
     public bool ThrottleApps { get; set; } = true;
     public bool TrimMemory { get; set; } = true;
+    public bool LowerGpuPriority { get; set; } = true;
+    public bool LowerMemoryPriority { get; set; } = true;
     public bool PauseServices { get; set; } = true;
     public bool PauseWindowsUpdate { get; set; } = true;
     public bool UploadLimits { get; set; } = true;

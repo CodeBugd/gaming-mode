@@ -29,6 +29,7 @@ public sealed class ProcessThrottler
         public DateTime FirstSeenUtc;
         public double? CpuBaseMs;
         public double CpuLastMs;
+        public int? OrigGpu, OrigMemory;   // only set once we've changed them
     }
 
     private readonly Dictionary<int, Entry> _procs = new();
@@ -57,7 +58,11 @@ public sealed class ProcessThrottler
         _procs.Values.Where(e => e.Throttled).Select(e => e.Name).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
 
     public List<ProcessRecord> Records => _procs.Values.Where(e => e.Touched)
-        .Select(e => new ProcessRecord { Id = e.Id, Name = e.Name, StartTicks = e.StartTicks, Priority = e.Original.ToString() }).ToList();
+        .Select(e => new ProcessRecord
+        {
+            Id = e.Id, Name = e.Name, StartTicks = e.StartTicks, Priority = e.Original.ToString(),
+            GpuPriority = e.OrigGpu, MemoryPriority = e.OrigMemory,
+        }).ToList();
 
     private Entry Classify(Process p)
     {
@@ -85,10 +90,18 @@ public sealed class ProcessThrottler
         {
             if (on)
             {
+                // Read the originals before changing anything.
+                int? gpu = _settings.Features.LowerGpuPriority ? Native.GetGpuPriority(p.Id) : null;
+                int? mem = _settings.Features.LowerMemoryPriority ? Native.GetMemoryPriority(p.Id) : null;
+
                 p.PriorityClass = ProcessPriorityClass.Idle;
                 Native.SetEfficiencyMode(p.Id, true);
                 e.Throttled = e.Touched = true;
                 if (e.CpuBaseMs is null) { e.CpuBaseMs = p.TotalProcessorTime.TotalMilliseconds; e.CpuLastMs = e.CpuBaseMs.Value; }
+                if (gpu > Native.GpuPriorityBelowNormal && Native.SetGpuPriority(p.Id, Native.GpuPriorityBelowNormal))
+                    e.OrigGpu ??= gpu;
+                if (mem > Native.MemoryPriorityVeryLow && Native.SetMemoryPriority(p.Id, Native.MemoryPriorityVeryLow))
+                    e.OrigMemory ??= mem;
                 if (_settings.Features.TrimMemory && !e.Trimmed)
                 {
                     long before = p.WorkingSet64;
@@ -102,6 +115,7 @@ public sealed class ProcessThrottler
             {
                 Native.SetEfficiencyMode(p.Id, false);
                 if (p.PriorityClass == ProcessPriorityClass.Idle) p.PriorityClass = e.Original;
+                RestoreGpuAndMemory(p.Id, e.OrigGpu, e.OrigMemory);
                 e.Throttled = false;
             }
         }
@@ -230,6 +244,13 @@ public sealed class ProcessThrottler
         return items.OrderBy(i => i.Protected).ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>Only puts a value back if it's still the one we set (so a change made by the app itself is kept).</summary>
+    internal static void RestoreGpuAndMemory(int pid, int? gpu, int? memory)
+    {
+        if (gpu is int g && Native.GetGpuPriority(pid) == Native.GpuPriorityBelowNormal) Native.SetGpuPriority(pid, g);
+        if (memory is int m && Native.GetMemoryPriority(pid) == Native.MemoryPriorityVeryLow) Native.SetMemoryPriority(pid, m);
+    }
+
     /// <summary>Puts back every process recorded in a state file (used on turn-off and after a restart/crash).</summary>
     public static int RestoreProcesses(IEnumerable<ProcessRecord> records)
     {
@@ -243,6 +264,7 @@ public sealed class ProcessThrottler
                 Native.SetEfficiencyMode(p.Id, false);
                 if (p.PriorityClass == ProcessPriorityClass.Idle && Enum.TryParse<ProcessPriorityClass>(r.Priority, out var original))
                     p.PriorityClass = original;                                         // don't undo a change you made yourself
+                RestoreGpuAndMemory(p.Id, r.GpuPriority, r.MemoryPriority);
                 restored++;
             }
             catch { /* gone */ }

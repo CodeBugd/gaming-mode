@@ -40,6 +40,7 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_toggleItem);
         menu.Items.Add("Settings...", null, (_, _) => ShowSettings());
+        menu.Items.Add("Do Not Disturb while gaming...", null, (_, _) => SettingsForm.OpenDoNotDisturbSettings());
         menu.Items.Add("Open log", null, (_, _) => OpenLog());
         menu.Items.Add("Check for updates", null, (_, _) => _ = CheckUpdatesAsync());
         menu.Items.Add(new ToolStripSeparator());
@@ -47,6 +48,8 @@ internal sealed class TrayApp : ApplicationContext
 
         _icon = new NotifyIcon { Icon = Icons.Off, Text = "Gaming Mode", ContextMenuStrip = menu, Visible = true };
         _icon.DoubleClick += (_, _) => _ = ToggleAsync();
+        _icon.BalloonTipClicked += (_, _) => { var a = _balloonClick; _balloonClick = null; a?.Invoke(); };
+        _icon.BalloonTipClosed += (_, _) => _balloonClick = null;
 
         _timer = new Timer { Interval = 1000 };
         _timer.Tick += async (_, _) => await PollAsync();
@@ -96,12 +99,28 @@ internal sealed class TrayApp : ApplicationContext
         _icon.Text = Trim(s.IsOn ? $"Gaming Mode ON - {s.ThrottledCount} apps in the background" : "Gaming Mode is off", 63);
 
         if (_wasOn == false && s.IsOn)
-            Balloon("Gaming Mode ON", $"{s.ThrottledCount} apps pushed to the back, {s.FreedMb:0} MB of RAM freed. Double-click the tray icon or the shortcut to turn off.");
+        {
+            if (!ShowDoNotDisturbTipOnce())
+                Balloon("Gaming Mode ON", $"{s.ThrottledCount} apps pushed to the back, {s.FreedMb:0} MB of RAM freed. Double-click the tray icon or the shortcut to turn off.");
+        }
         if (_lastOffCount >= 0 && s.OffCount > _lastOffCount && !string.IsNullOrEmpty(s.LastReport))
             Balloon("Gaming Mode OFF", s.LastReport!);
         _wasOn = s.IsOn;
         _lastOffCount = s.OffCount;
         NoticeNewVersion(s.Version);
+    }
+
+    private Action? _balloonClick;
+
+    /// <summary>The first time Gaming Mode turns on: suggest Windows' own "Do not disturb while gaming" (click opens it).</summary>
+    private bool ShowDoNotDisturbTipOnce()
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(UserKey);
+        if (key.GetValue("DndTipShown") != null) return false;
+        key.SetValue("DndTipShown", 1, RegistryValueKind.DWord);
+        Balloon("Gaming Mode ON - one more tip", "Let Windows silence notifications while you play. Click here, then turn on " +
+                "\"When playing a game\" under \"Turn on do not disturb automatically\".", SettingsForm.OpenDoNotDisturbSettings);
+        return true;
     }
 
     private bool _versionChecked;
@@ -155,7 +174,11 @@ internal sealed class TrayApp : ApplicationContext
         if (File.Exists(Paths.LogFile)) Process.Start(new ProcessStartInfo("notepad.exe", $"\"{Paths.LogFile}\"") { UseShellExecute = true });
     }
 
-    private void Balloon(string title, string text) => _icon.ShowBalloonTip(5000, title, Trim(text, 250), ToolTipIcon.Info);
+    private void Balloon(string title, string text, Action? onClick = null)
+    {
+        _balloonClick = onClick;
+        _icon.ShowBalloonTip(5000, title, Trim(text, 250), ToolTipIcon.Info);
+    }
 
     private static string Trim(string s, int max) => s.Length <= max ? s : s[..(max - 1)] + "…";
 

@@ -24,6 +24,8 @@ internal sealed class SettingsForm : Form
     {
         (nameof(FeatureSet.ThrottleApps), "Push background apps to the back (lowest priority + Efficiency mode). The app you're using always runs at full speed."),
         (nameof(FeatureSet.TrimMemory), "Free up RAM: background apps hand back memory they aren't using."),
+        (nameof(FeatureSet.LowerGpuPriority), "Give background apps lower graphics card priority, so the game (and OBS) draw first."),
+        (nameof(FeatureSet.LowerMemoryPriority), "When RAM runs short, move background apps' memory out first and keep the game's."),
         (nameof(FeatureSet.PauseServices), "Pause Windows Search indexing, SysMain and telemetry."),
         (nameof(FeatureSet.PauseWindowsUpdate), "Pause Windows Update (same as the Settings app; expires on its own)."),
         (nameof(FeatureSet.UploadLimits), "Cap the upload speed of the apps on the Upload limits tab, so your stream keeps the bandwidth."),
@@ -133,6 +135,17 @@ internal sealed class SettingsForm : Form
             _features[key] = cb;
             list.Controls.Add(cb);
         }
+
+        list.Controls.Add(new Label
+        {
+            AutoSize = true, MaximumSize = new Size(740, 0), Margin = new Padding(3, 18, 3, 6),
+            Text = "Notifications while gaming: Windows can silence notifications by itself whenever you play a game or use an app " +
+                   "full screen. Turn on \"When playing a game\" and \"When using an app in full-screen mode\" under " +
+                   "\"Turn on do not disturb automatically\". It's a one-time switch, and it works even when Gaming Mode is off.",
+        });
+        var dnd = new Button { Text = "Open Windows' Do Not Disturb settings", AutoSize = true, Margin = new Padding(3, 0, 3, 3) };
+        dnd.Click += (_, _) => OpenDoNotDisturbSettings();
+        list.Controls.Add(dnd);
         page.Controls.Add(list);
         return page;
     }
@@ -165,6 +178,15 @@ internal sealed class SettingsForm : Form
         page.Controls.Add(check);
         page.Controls.Add(intro);
         return page;
+    }
+
+    /// <summary>
+    /// Windows keeps the automatic Do Not Disturb rules in an undocumented, account-synced format, so Gaming Mode
+    /// doesn't write them - it opens the page where you switch them on once.
+    /// </summary>
+    public static void OpenDoNotDisturbSettings()
+    {
+        try { Process.Start(new ProcessStartInfo("ms-settings:notifications") { UseShellExecute = true }); } catch { }
     }
 
     // ---------------------------------------------------------------- data

@@ -8,6 +8,8 @@ public sealed class ProcessRecord
     public string Name { get; set; } = "";
     public long StartTicks { get; set; }
     public string Priority { get; set; } = "Normal";
+    public int? GpuPriority { get; set; }       // original, only set if Gaming Mode changed it
+    public int? MemoryPriority { get; set; }    // original, only set if Gaming Mode changed it
 }
 
 /// <summary>

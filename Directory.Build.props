@@ -4,7 +4,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Deterministic>true</Deterministic>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Product>AceBot Gaming Mode</Product>
     <Company>AceBot</Company>
     <Copyright>Copyright (c) 2026 AceBot</Copyright>
