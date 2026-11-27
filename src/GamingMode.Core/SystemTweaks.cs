@@ -64,6 +64,30 @@ internal static class SystemTweaks
         if (s.BackgroundRecording != null) Try("background recording", () => RestoreUserDword(s.UserSid, DvrKey, "HistoricalCaptureEnabled", s.BackgroundRecording));
     }
 
+    /// <summary>What this session actually changed, in plain words (only what was recorded, so only real changes).</summary>
+    public static List<string> Describe(SessionState s, Settings cfg)
+    {
+        var lines = new List<string>();
+        if (s.Services.Count > 0)
+            lines.Add("Paused: " + string.Join(", ", s.Services.Select(n => n switch
+            {
+                "WSearch" => "Windows Search indexing", "SysMain" => "SysMain", "DiagTrack" => "telemetry", _ => n,
+            })));
+        if (s.PowerPlan != null) lines.Add("Power plan switched to High performance");
+        if (s.GameMode != null) lines.Add("Windows Game Mode turned on");
+        if (s.WindowsUpdatePause != null) lines.Add("Windows Update paused");
+        if (s.QosPolicies.Count > 0)
+        {
+            var mbps = cfg.UploadLimits.ToDictionary(u => QosPrefix + u.App, u => u.Mbps, StringComparer.OrdinalIgnoreCase);
+            lines.Add("Upload caps: " + string.Join(", ", s.QosPolicies.Select(q =>
+                $"{q[QosPrefix.Length..]}{(mbps.TryGetValue(q, out var m) ? $" {m:0.##} Mbps" : "")}")));
+        }
+        if (s.Maintenance != null) lines.Add("Automatic Maintenance held off");
+        if (s.DefenderScanCpu != null) lines.Add($"Defender scheduled scans limited to {cfg.DefenderScanCpuPercent}% CPU (real-time protection on)");
+        if (s.BackgroundRecording != null) lines.Add("Game Bar background recording off");
+        return lines;
+    }
+
     private static void Try(string what, Action action)
     {
         try { action(); }

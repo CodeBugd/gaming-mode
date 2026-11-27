@@ -8,6 +8,7 @@ namespace GamingMode.App;
 ///   GamingMode.exe [--tray]        tray icon (started at sign-in, and by the service after an update)
 ///   GamingMode.exe --toggle        turn Gaming Mode on/off (desktop shortcut), then keep a tray icon
 ///   GamingMode.exe --settings      settings window
+///   GamingMode.exe --stats         live stats window
 ///   GamingMode.exe --service       run as the Windows service (started by Windows, not by you)
 ///   GamingMode.exe --console       run the service in a console window for debugging (admin)
 ///   GamingMode.exe --close-tray    ask every tray icon to close (used by the installer)
@@ -35,6 +36,11 @@ internal static class Program
         if (mode == "--settings")
         {
             Application.Run(new SettingsForm(firstRun: false));
+            return 0;
+        }
+        if (mode == "--stats")
+        {
+            Application.Run(new StatsForm());
             return 0;
         }
 

@@ -14,6 +14,19 @@ One click pushes everything that isn't gaming, streaming or voice chat to the ba
 
 Every part can be switched off in **Gaming Mode Settings**. Nothing is ever closed or killed.
 
+## Auto on (off by default)
+
+Settings → **Auto on**: Gaming Mode turns itself on when a game is the window in front, and off again a set time (1 minute by default) after the last game closes. A game is anything installed in a game folder (Steam's `steamapps\common`, Epic, Riot, Xbox, GOG, ...) that isn't on the "never a game" list (launchers, updaters, crash reporters, browsers, video players). Optionally any app that fills the screen counts too.
+
+- Turned on by hand? It stays on when the game closes.
+- Turned off by hand while a game is running? That game won't turn it back on.
+
+The tray app does the watching (the service can't see your desktop), so auto on needs the tray icon running.
+
+## Live stats
+
+Tray menu → **Live stats...** (or click the "Gaming Mode ON" notification). Refreshes every 2 seconds: how long it's been on, each pushed-back app's CPU right now, CPU time used since it was pushed back, RAM and process count, the RAM handed back, and the system settings this session actually changed. Every number is measured; nothing is estimated.
+
 ## How it's built
 
 `GamingMode.exe` is both:
@@ -34,12 +47,12 @@ They talk over the local named pipe `AceBot.GamingMode` (network access denied; 
 ## Build
 
 ```
-powershell -ExecutionPolicy Bypass -File build\publish.ps1 -Version 1.0.1 -Installer
+powershell -ExecutionPolicy Bypass -File build\publish.ps1 -Version 1.3.1 -Installer
 ```
 
 Runs the tests, publishes a self-contained single-file `artifacts\publish\GamingMode.exe`, and builds `artifacts\GamingMode-<version>-x64.msi`. Bump the version for every MSI you hand out, or Windows won't upgrade over the old one.
 
-Command line: `--toggle`, `--settings`, `--console` (run the service in a window for debugging, as admin), `--close-tray`.
+Command line: `--toggle`, `--settings`, `--stats`, `--console` (run the service in a window for debugging, as admin), `--close-tray`.
 
 ## Releases and automatic updates
 

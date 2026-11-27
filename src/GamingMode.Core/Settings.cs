@@ -33,6 +33,8 @@ public sealed class Settings
     public List<string> ProtectedApps { get; set; } = new();
     public List<UploadLimit> UploadLimits { get; set; } = new();
     public FeatureSet Features { get; set; } = new();
+    /// <summary>Turn on by itself when a game starts. Missing from older settings files, so filled in by Normalize.</summary>
+    public AutoOnSettings? AutoOn { get; set; }
     public int ScanSeconds { get; set; } = 3;
     public int GraceSeconds { get; set; } = 10;
     public int DefenderScanCpuPercent { get; set; } = 5;
@@ -53,6 +55,7 @@ public sealed class Settings
             .Select(u => new UploadLimit { App = u.App.Trim(), Mbps = Math.Min(u.Mbps, 10_000) })
             .GroupBy(u => u.App, StringComparer.OrdinalIgnoreCase).Select(g => g.Last()).ToList();
         Features ??= new FeatureSet();
+        AutoOn = (AutoOn ?? AutoOnSettings.CreateDefault()).Normalize();
         ScanSeconds = Math.Clamp(ScanSeconds, 1, 60);
         GraceSeconds = Math.Clamp(GraceSeconds, 0, 120);
         DefenderScanCpuPercent = Math.Clamp(DefenderScanCpuPercent, 5, 100);

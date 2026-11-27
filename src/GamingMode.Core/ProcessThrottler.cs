@@ -2,6 +2,18 @@ using System.Diagnostics;
 
 namespace GamingMode.Core;
 
+/// <summary>One pushed-back app (all its processes together), as measured on the last scan.</summary>
+public sealed class AppStat
+{
+    public string Name { get; set; } = "";
+    public int Processes { get; set; }
+    /// <summary>Share of the whole CPU (all cores) over the last scan.</summary>
+    public double CpuPercent { get; set; }
+    /// <summary>CPU time used since it was pushed back.</summary>
+    public double CpuSeconds { get; set; }
+    public double RamMb { get; set; }
+}
+
 public sealed class PreviewItem
 {
     public string Name { get; set; } = "";
@@ -28,7 +40,8 @@ public sealed class ProcessThrottler
         public bool Throttled, Touched, Trimmed, Exempt;
         public DateTime FirstSeenUtc;
         public double? CpuBaseMs;
-        public double CpuLastMs;
+        public double CpuLastMs, CpuPrevMs;
+        public long WorkingSet;
         public int? OrigGpu, OrigMemory;   // only set once we've changed them
     }
 
@@ -41,6 +54,8 @@ public sealed class ProcessThrottler
     private Protection _protection;
     private readonly Settings _settings;
     private readonly DateTime _startedUtc = DateTime.UtcNow;
+    private DateTime _lastScanUtc;
+    private double _lastScanSeconds;
 
     public long FreedBytes { get; private set; }
 
@@ -97,7 +112,7 @@ public sealed class ProcessThrottler
                 p.PriorityClass = ProcessPriorityClass.Idle;
                 Native.SetEfficiencyMode(p.Id, true);
                 e.Throttled = e.Touched = true;
-                if (e.CpuBaseMs is null) { e.CpuBaseMs = p.TotalProcessorTime.TotalMilliseconds; e.CpuLastMs = e.CpuBaseMs.Value; }
+                if (e.CpuBaseMs is null) { e.CpuBaseMs = p.TotalProcessorTime.TotalMilliseconds; e.CpuLastMs = e.CpuPrevMs = e.CpuBaseMs.Value; }
                 if (gpu > Native.GpuPriorityBelowNormal && Native.SetGpuPriority(p.Id, Native.GpuPriorityBelowNormal))
                     e.OrigGpu ??= gpu;
                 if (mem > Native.MemoryPriorityVeryLow && Native.SetMemoryPriority(p.Id, Native.MemoryPriorityVeryLow))
@@ -127,6 +142,9 @@ public sealed class ProcessThrottler
     {
         bool dirty = false;
         var alive = new HashSet<int>();
+        var now = DateTime.UtcNow;
+        _lastScanSeconds = _lastScanUtc == default ? 0 : (now - _lastScanUtc).TotalSeconds;
+        _lastScanUtc = now;
         foreach (var p in Process.GetProcesses())
         {
             using (p)
@@ -136,7 +154,12 @@ public sealed class ProcessThrottler
                     if (p.SessionId != _sessionId || p.Id == _ownPid) continue;
                     alive.Add(p.Id);
                     var e = Classify(p);
-                    if (e.CpuBaseMs != null) { try { e.CpuLastMs = p.TotalProcessorTime.TotalMilliseconds; } catch { } }
+                    if (e.CpuBaseMs != null)
+                    {
+                        e.CpuPrevMs = e.CpuLastMs;
+                        try { e.CpuLastMs = p.TotalProcessorTime.TotalMilliseconds; } catch { }
+                    }
+                    if (e.Throttled) { try { e.WorkingSet = p.WorkingSet64; } catch { } }
                     if (e.Kind != Kind.Target || e.Exempt) continue;
 
                     if (p.Id == foregroundPid)
@@ -186,6 +209,35 @@ public sealed class ProcessThrottler
             }
             catch { }
         }
+    }
+
+    /// <summary>The pushed-back apps right now, busiest first.</summary>
+    public List<AppStat> AppStats()
+    {
+        double capacityMs = _lastScanSeconds * 1000 * Math.Max(1, Environment.ProcessorCount);
+        return _procs.Values.Where(e => e.Throttled)
+            .GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new AppStat
+            {
+                Name = g.First().Name,
+                Processes = g.Count(),
+                CpuPercent = capacityMs > 0 ? Math.Round(100 * g.Sum(e => Math.Max(0, e.CpuLastMs - e.CpuPrevMs)) / capacityMs, 2) : 0,
+                CpuSeconds = Math.Round(g.Sum(e => e.CpuBaseMs is double b ? Math.Max(0, e.CpuLastMs - b) : 0) / 1000, 1),
+                RamMb = Math.Round(g.Sum(e => e.WorkingSet) / 1048576.0, 1),
+            })
+            .OrderByDescending(a => a.CpuPercent).ThenByDescending(a => a.RamMb).ToList();
+    }
+
+    /// <summary>Apps left at full speed because they were in front and full screen.</summary>
+    public IReadOnlyList<string> FullSpeedNames =>
+        _procs.Values.Where(e => e.Exempt).Select(e => e.Name).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
+
+    /// <summary>Background CPU used so far this session, as a share of the whole CPU (closed apps included).</summary>
+    public double SessionCpuPercent()
+    {
+        double total = _cpuByName.Values.Sum() + _procs.Values.Sum(e => e.CpuBaseMs is double b ? Math.Max(0, e.CpuLastMs - b) : 0);
+        double capacity = Math.Max(1, (DateTime.UtcNow - _startedUtc).TotalMilliseconds * Math.Max(1, Environment.ProcessorCount));
+        return Math.Round(100 * total / capacity, 2);
     }
 
     private void AddCpu(string name, double ms)

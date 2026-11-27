@@ -9,8 +9,25 @@ public sealed class EngineStatus
     public List<string> ThrottledNames { get; set; } = new();
     /// <summary>Changes every time Gaming Mode turns off, so the tray knows a new report is ready.</summary>
     public int OffCount { get; set; }
+    /// <summary>Turned on by itself because a game started (so it may also turn itself off).</summary>
+    public bool AutoStarted { get; set; }
     public string? LastReport { get; set; }
     public string Version { get; set; } = Updater.Current.ToString();
+}
+
+/// <summary>The live stats window's data. Every number is measured, nothing estimated.</summary>
+public sealed class EngineStats
+{
+    public bool IsOn { get; set; }
+    public bool AutoStarted { get; set; }
+    public DateTime? EnabledAtUtc { get; set; }
+    public double FreedMb { get; set; }
+    public List<AppStat> Apps { get; set; } = new();
+    public double BackgroundCpuNow { get; set; }
+    public double BackgroundCpuSession { get; set; }
+    public List<string> FullSpeed { get; set; } = new();
+    public List<string> Changes { get; set; } = new();
+    public string? LastReport { get; set; }
 }
 
 /// <summary>Runs inside the service. All public methods are thread-safe.</summary>
@@ -26,6 +43,7 @@ public sealed class GamingEngine : IDisposable
     private DateTime _fgUpdatedUtc;
     private int _offCount;
     private string? _lastReport;
+    private bool _autoStarted;
 
     public GamingEngine() => _settings = Settings.Load(Paths.SettingsFile);
 
@@ -48,11 +66,12 @@ public sealed class GamingEngine : IDisposable
         }
     }
 
-    public EngineStatus TurnOn(int sessionId, string? userSid)
+    public EngineStatus TurnOn(int sessionId, string? userSid, bool auto = false)
     {
         lock (_gate)
         {
             if (_state != null) return StatusLocked();
+            _autoStarted = auto;
             _settings = Settings.Load(Paths.SettingsFile);
             _state = new SessionState { EnabledAtUtc = DateTime.UtcNow, SessionId = sessionId, UserSid = userSid };
             _state.Save(Paths.StateFile);                       // written first, so a crash mid-way still gets cleaned up
@@ -63,7 +82,7 @@ public sealed class GamingEngine : IDisposable
                 _throttler = new ProcessThrottler(sessionId, _settings);
                 _throttler.Scan(CurrentForeground(), _fgFullscreen, initial: true);
                 SaveStateLocked();
-                Log.Write($"ON. Pushed back: {string.Join(", ", _throttler.ThrottledNames)}");
+                Log.Write($"ON{(auto ? " (game started)" : "")}. Pushed back: {string.Join(", ", _throttler.ThrottledNames)}");
             }
             else Log.Write("ON (app throttling switched off in settings).");
             _timer = new Timer(_ => Tick(), null, TimeSpan.FromSeconds(_settings.ScanSeconds), TimeSpan.FromSeconds(_settings.ScanSeconds));
@@ -84,12 +103,45 @@ public sealed class GamingEngine : IDisposable
             _state = null; _throttler = null;
             _offCount++;
             _lastReport = $"All back to normal ({restored} apps restored). {report}".Trim();
+            _autoStarted = false;
             Log.Write($"OFF. {report}");
             return StatusLocked();
         }
     }
 
     public EngineStatus Toggle(int sessionId, string? userSid) => IsOn ? TurnOff() : TurnOn(sessionId, userSid);
+
+    /// <summary>Game closed: only turns off if a game turned it on, and only for the session it's running for.</summary>
+    public EngineStatus AutoOff(int sessionId)
+    {
+        lock (_gate)
+        {
+            if (_state == null || !_autoStarted || _state.SessionId != sessionId) return StatusLocked();
+            Log.Write("Game closed - turning off by itself.");
+            return TurnOff();
+        }
+    }
+
+    public EngineStats Stats()
+    {
+        lock (_gate)
+        {
+            var stats = new EngineStats
+            {
+                IsOn = _state != null, AutoStarted = _autoStarted && _state != null, EnabledAtUtc = _state?.EnabledAtUtc,
+                FreedMb = Math.Round((_throttler?.FreedBytes ?? 0) / 1048576.0, 1), LastReport = _lastReport,
+            };
+            if (_throttler != null)
+            {
+                stats.Apps = _throttler.AppStats();
+                stats.BackgroundCpuNow = Math.Round(stats.Apps.Sum(a => a.CpuPercent), 2);
+                stats.BackgroundCpuSession = _throttler.SessionCpuPercent();
+                stats.FullSpeed = _throttler.FullSpeedNames.ToList();
+            }
+            if (_state != null) stats.Changes = SystemTweaks.Describe(_state, _settings);
+            return stats;
+        }
+    }
 
     /// <summary>The tray app reports which window you're using (the service can't see your desktop).</summary>
     public EngineStatus ReportForeground(int pid, bool fullscreen)
@@ -161,6 +213,7 @@ public sealed class GamingEngine : IDisposable
         ThrottledNames = _throttler?.ThrottledNames.ToList() ?? new(),
         FreedMb = Math.Round((_throttler?.FreedBytes ?? 0) / 1048576.0, 1),
         OffCount = _offCount,
+        AutoStarted = _autoStarted && _state != null,
         LastReport = _lastReport,
     };
 

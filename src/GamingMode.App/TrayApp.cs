@@ -19,9 +19,16 @@ internal sealed class TrayApp : ApplicationContext
     private readonly Timer _timer;
     private readonly EventWaitHandle? _exitEvent;
     private bool? _wasOn;
+    private bool _wasAutoStarted;
     private int _lastOffCount = -1;
     private bool _busy, _polling;
     private SettingsForm? _settings;
+    private StatsForm? _stats;
+    private readonly AutoOnController _auto = new();
+    private GameDetector? _detector;
+    private TimeSpan _autoOffDelay = TimeSpan.FromSeconds(60);
+    private DateTime _autoSettingsLoadedUtc;
+    private readonly Dictionary<int, (string Name, long StartTicks, bool? IsGame, bool? WasFullscreen)> _seen = new();
 
     /// <param name="justChanged">Status right after this process toggled, so the first notification still shows.</param>
     public TrayApp(EngineStatus? justChanged = null)
@@ -39,6 +46,8 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add(_statusItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_toggleItem);
+        var statsItem = new ToolStripMenuItem("Live stats...", null, (_, _) => ShowStats()) { Font = new Font(menu.Font, FontStyle.Bold) };
+        menu.Items.Add(statsItem);
         menu.Items.Add("Settings...", null, (_, _) => ShowSettings());
         menu.Items.Add("Do Not Disturb while gaming...", null, (_, _) => SettingsForm.OpenDoNotDisturbSettings());
         menu.Items.Add("Open log", null, (_, _) => OpenLog());
@@ -77,7 +86,11 @@ internal sealed class TrayApp : ApplicationContext
                 r = await Ipc.SendAsync(new IpcRequest { Command = "foreground", ForegroundPid = pid, Fullscreen = full }, 1500);
             }
             else r = await Ipc.SendAsync(new IpcRequest { Command = "status" }, 1500);
-            if (r.Status != null) Show(r.Status);
+            if (r.Status != null)
+            {
+                Show(r.Status);
+                await AutoOnAsync(r.Status);
+            }
         }
         catch
         {
@@ -95,22 +108,104 @@ internal sealed class TrayApp : ApplicationContext
         _toggleItem.Enabled = !_busy;
         _icon.Icon = s.IsOn ? Icons.On : Icons.Off;
         _toggleItem.Text = s.IsOn ? "Turn Gaming Mode off" : "Turn Gaming Mode on";
-        _statusItem.Text = s.IsOn ? $"ON: {s.ThrottledCount} apps pushed back, {s.FreedMb:0} MB RAM freed" : "Gaming Mode is off";
+        _statusItem.Text = s.IsOn ? $"ON{(s.AutoStarted ? " (game)" : "")}: {s.ThrottledCount} apps pushed back, {s.FreedMb:0} MB RAM freed" : "Gaming Mode is off";
         _icon.Text = Trim(s.IsOn ? $"Gaming Mode ON - {s.ThrottledCount} apps in the background" : "Gaming Mode is off", 63);
 
         if (_wasOn == false && s.IsOn)
         {
             if (!ShowDoNotDisturbTipOnce())
-                Balloon("Gaming Mode ON", $"{s.ThrottledCount} apps pushed to the back, {s.FreedMb:0} MB of RAM freed. Double-click the tray icon or the shortcut to turn off.");
+            {
+                var title = s.AutoStarted ? $"Gaming Mode ON - {_auto.CurrentGame ?? "game"} started" : "Gaming Mode ON";
+                var how = s.AutoStarted ? "It turns off by itself after the game closes." : "Double-click the tray icon or the shortcut to turn off.";
+                Balloon(title, $"{s.ThrottledCount} apps pushed to the back, {s.FreedMb:0} MB of RAM freed. {how} Click for live stats.", ShowStats);
+            }
         }
         if (_lastOffCount >= 0 && s.OffCount > _lastOffCount && !string.IsNullOrEmpty(s.LastReport))
-            Balloon("Gaming Mode OFF", s.LastReport!);
+            Balloon(_wasAutoStarted ? "Gaming Mode OFF - game closed" : "Gaming Mode OFF", s.LastReport!);
+        _wasAutoStarted = s.AutoStarted;
         _wasOn = s.IsOn;
         _lastOffCount = s.OffCount;
         NoticeNewVersion(s.Version);
     }
 
     private Action? _balloonClick;
+
+    // ---------------------------------------------------------------- auto-on when a game starts
+    private async Task AutoOnAsync(EngineStatus s)
+    {
+        if ((DateTime.UtcNow - _autoSettingsLoadedUtc).TotalSeconds >= 15) await LoadAutoSettingsAsync();
+        if (_detector == null) return;
+
+        var (pid, full) = Foreground.Get();
+        AutoOnController.ProcessKey? game = null;
+        string? gameName = null;
+        if (pid > 0 && pid != Environment.ProcessId && IsGame(pid, full, out var key, out var name)) { game = key; gameName = name; }
+
+        var action = _auto.Update(DateTime.UtcNow, s.IsOn, s.AutoStarted, game, gameName, IsAlive, _autoOffDelay);
+        if (action == AutoAction.None) return;
+        try
+        {
+            var r = await Ipc.SendAsync(new IpcRequest { Command = action == AutoAction.TurnOn ? "autoOn" : "autoOff" }, 3000);
+            if (r.Status != null) Show(r.Status);
+            if (r.Status?.IsOn != (action == AutoAction.TurnOn)) _auto.ActionFailed();
+        }
+        catch { _auto.ActionFailed(); }
+    }
+
+    /// <summary>Re-read the auto-on settings now and then (they're changed in the settings window, which may be another process).</summary>
+    public async Task LoadAutoSettingsAsync()
+    {
+        _autoSettingsLoadedUtc = DateTime.UtcNow;
+        try
+        {
+            var r = await Ipc.SendAsync(new IpcRequest { Command = "getSettings" }, 1500);
+            var a = r.Settings?.AutoOn;
+            _detector = a is { Enabled: true } ? new GameDetector(a) : null;
+            _autoOffDelay = TimeSpan.FromSeconds(a?.OffDelaySeconds ?? 60);
+            _seen.Clear();
+        }
+        catch { }
+    }
+
+    private bool IsGame(int pid, bool fullscreen, out AutoOnController.ProcessKey key, out string name)
+    {
+        key = default; name = "";
+        if (!_seen.TryGetValue(pid, out var info) || !SameProcess(pid, info.StartTicks))
+        {
+            try
+            {
+                using var p = Process.GetProcessById(pid);
+                long ticks = 0;
+                try { ticks = p.StartTime.ToUniversalTime().Ticks; } catch { }   // some anti-cheat blocks this
+                info = (p.ProcessName, ticks, null, null);
+            }
+            catch { return false; }
+        }
+        // Fullscreen can change (alt-tab, borderless toggles), so only the fullscreen answer is re-checked.
+        if (info.IsGame == null || (info.IsGame == false && info.WasFullscreen != fullscreen))
+        {
+            info.IsGame = _detector!.IsGame(info.Name, GameDetector.ImagePath(pid), fullscreen);
+            info.WasFullscreen = fullscreen;
+        }
+        _seen[pid] = info;
+        if (_seen.Count > 200) _seen.Clear();
+        key = new AutoOnController.ProcessKey(pid, info.StartTicks);
+        name = info.Name;
+        return info.IsGame == true;
+    }
+
+    private static bool SameProcess(int pid, long startTicks)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            if (startTicks == 0) return true;
+            return p.StartTime.ToUniversalTime().Ticks == startTicks;
+        }
+        catch { return false; }
+    }
+
+    private static bool IsAlive(AutoOnController.ProcessKey k) => SameProcess(k.Pid, k.StartTicks);
 
     /// <summary>The first time Gaming Mode turns on: suggest Windows' own "Do not disturb while gaming" (click opens it).</summary>
     private bool ShowDoNotDisturbTipOnce()
@@ -166,7 +261,15 @@ internal sealed class TrayApp : ApplicationContext
     {
         if (_settings is { IsDisposed: false }) { _settings.Activate(); return; }
         _settings = new SettingsForm(firstRun);
+        _settings.FormClosed += (_, _) => _ = LoadAutoSettingsAsync();
         _settings.Show();
+    }
+
+    private void ShowStats()
+    {
+        if (_stats is { IsDisposed: false }) { _stats.Activate(); return; }
+        _stats = new StatsForm();
+        _stats.Show();
     }
 
     private static void OpenLog()

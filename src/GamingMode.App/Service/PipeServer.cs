@@ -88,6 +88,14 @@ internal sealed class PipeServer
             case "on": return new IpcResponse { Status = _engine.TurnOn(sessionId, sid) };
             case "off": return new IpcResponse { Status = _engine.TurnOff() };
             case "toggle": return new IpcResponse { Status = _engine.Toggle(sessionId, sid) };
+            case "autoOn":
+                // Only when switched on in settings - the tray decides a game started, the setting is checked here too.
+                return new IpcResponse
+                {
+                    Status = _engine.GetSettings().AutoOn?.Enabled == true ? _engine.TurnOn(sessionId, sid, auto: true) : _engine.Status(),
+                };
+            case "autoOff": return new IpcResponse { Status = _engine.AutoOff(sessionId) };
+            case "stats": return new IpcResponse { Stats = _engine.Stats() };
             case "foreground":
                 // Only the session Gaming Mode is running for may say what's in front.
                 return new IpcResponse

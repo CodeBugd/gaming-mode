@@ -18,6 +18,11 @@ internal sealed class SettingsForm : Form
     private readonly ListView _preview = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true };
     private readonly Label _previewSummary = new() { Dock = DockStyle.Top, AutoSize = false, Height = 40, Padding = new Padding(0, 6, 0, 0) };
     private readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
+    private readonly CheckBox _autoEnabled = new() { AutoSize = true, Text = "Turn Gaming Mode on by itself when a game starts, and off again after it closes" };
+    private readonly CheckBox _autoFullscreen = new() { AutoSize = true, Text = "Also count any app that fills the whole screen as a game (not browsers or video players)" };
+    private readonly NumericUpDown _autoDelay = new() { Minimum = 0, Maximum = 30, Width = 60 };
+    private readonly TextBox _autoGames = new() { Multiline = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, AcceptsReturn = true };
+    private readonly TextBox _autoNotGames = new() { Multiline = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, AcceptsReturn = true };
     private readonly Button _save = new() { Text = "Save", AutoSize = true, MinimumSize = new Size(90, 30) };
 
     private static readonly (string Key, string Text)[] FeatureText =
@@ -50,6 +55,7 @@ internal sealed class SettingsForm : Form
         _tabs.TabPages.Add(BuildProtectedTab());
         _tabs.TabPages.Add(BuildLimitsTab());
         _tabs.TabPages.Add(BuildFeaturesTab());
+        _tabs.TabPages.Add(BuildAutoOnTab());
         _tabs.TabPages.Add(BuildPreviewTab(firstRun));
 
         var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Height = 48, Padding = new Padding(8) };
@@ -63,7 +69,7 @@ internal sealed class SettingsForm : Form
         Controls.Add(bottom);
         AcceptButton = _save;
 
-        if (firstRun) _tabs.SelectedIndex = 3;
+        if (firstRun) _tabs.SelectedIndex = 4;
         Shown += async (_, _) => { await LoadAsync(); if (firstRun) await RefreshPreviewAsync(); };
     }
 
@@ -150,6 +156,47 @@ internal sealed class SettingsForm : Form
         return page;
     }
 
+    private TabPage BuildAutoOnTab()
+    {
+        var page = new TabPage("Auto on") { Padding = new Padding(10) };
+        var top = new FlowLayoutPanel { Dock = DockStyle.Top, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true };
+        top.Controls.Add(_autoEnabled);
+        top.Controls.Add(_autoFullscreen);
+        var delayRow = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 4, 0, 4) };
+        delayRow.Controls.Add(new Label { Text = "Turn off", AutoSize = true, Margin = new Padding(3, 6, 3, 3) });
+        delayRow.Controls.Add(_autoDelay);
+        delayRow.Controls.Add(new Label { Text = "minutes after the last game closes (0 = straight away)", AutoSize = true, Margin = new Padding(3, 6, 3, 3) });
+        top.Controls.Add(delayRow);
+        top.Controls.Add(new Label
+        {
+            AutoSize = true, MaximumSize = new Size(760, 0), Margin = new Padding(3, 4, 3, 8),
+            Text = "A game is spotted when it's the window in front. If you turn Gaming Mode off yourself while a game is running, " +
+                   "that game won't turn it back on. If you turned it on yourself, it stays on when the game closes.\n" +
+                   "One entry per line: an app name (wildcards * allowed) or path: plus part of its folder.",
+        });
+
+        var lists = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+        lists.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        lists.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        lists.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        lists.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        lists.Controls.Add(new Label { Text = "Games (folders games are installed in)", AutoSize = true }, 0, 0);
+        lists.Controls.Add(new Label { Text = "Never a game (launchers, browsers, players)", AutoSize = true }, 1, 0);
+        lists.Controls.Add(_autoGames, 0, 1);
+        lists.Controls.Add(_autoNotGames, 1, 1);
+
+        var reset = new Button { Text = "Reset lists to defaults", AutoSize = true, Dock = DockStyle.Bottom };
+        reset.Click += (_, _) =>
+        {
+            _autoGames.Lines = AutoOnSettings.DefaultGames;
+            _autoNotGames.Lines = AutoOnSettings.DefaultNotGames;
+        };
+        page.Controls.Add(lists);
+        page.Controls.Add(reset);
+        page.Controls.Add(top);
+        return page;
+    }
+
     private TabPage BuildPreviewTab(bool firstRun)
     {
         var page = new TabPage("Preview") { Padding = new Padding(10) };
@@ -208,6 +255,12 @@ internal sealed class SettingsForm : Form
         _limits.Rows.Clear();
         foreach (var l in _settings.UploadLimits) _limits.Rows.Add(l.App, l.Mbps.ToString("0.##"));
         foreach (var (key, cb) in _features) cb.Checked = (bool)typeof(FeatureSet).GetProperty(key)!.GetValue(_settings.Features)!;
+        var auto = _settings.AutoOn ?? AutoOnSettings.CreateDefault();
+        _autoEnabled.Checked = auto.Enabled;
+        _autoFullscreen.Checked = auto.FullscreenApps;
+        _autoDelay.Value = Math.Clamp((decimal)Math.Round(auto.OffDelaySeconds / 60.0), _autoDelay.Minimum, _autoDelay.Maximum);
+        _autoGames.Lines = auto.Games.ToArray();
+        _autoNotGames.Lines = auto.NotGames.ToArray();
     }
 
     private Settings Collect()
@@ -217,6 +270,11 @@ internal sealed class SettingsForm : Form
             ProtectedApps = _protected.Items.Cast<string>().ToList(),
             ScanSeconds = _settings.ScanSeconds, GraceSeconds = _settings.GraceSeconds,
             DefenderScanCpuPercent = _settings.DefenderScanCpuPercent, WindowsUpdatePauseDays = _settings.WindowsUpdatePauseDays,
+            AutoOn = new AutoOnSettings
+            {
+                Enabled = _autoEnabled.Checked, FullscreenApps = _autoFullscreen.Checked, OffDelaySeconds = (int)_autoDelay.Value * 60,
+                Games = _autoGames.Lines.ToList(), NotGames = _autoNotGames.Lines.ToList(),
+            },
         };
         foreach (DataGridViewRow row in _limits.Rows)
         {

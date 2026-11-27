@@ -7,7 +7,7 @@ namespace GamingMode.Core;
 /// <summary>One JSON line in, one JSON line out, per connection.</summary>
 public sealed class IpcRequest
 {
-    public string Command { get; set; } = "status";   // status | on | off | toggle | foreground | getSettings | setSettings | preview | checkUpdate
+    public string Command { get; set; } = "status";   // status | on | off | toggle | autoOn | autoOff | stats | foreground | getSettings | setSettings | preview | checkUpdate
     public int ForegroundPid { get; set; }
     public bool Fullscreen { get; set; }
     public Settings? Settings { get; set; }
@@ -20,6 +20,7 @@ public sealed class IpcResponse
     public EngineStatus? Status { get; set; }
     public Settings? Settings { get; set; }
     public List<PreviewItem>? Preview { get; set; }
+    public EngineStats? Stats { get; set; }
     public string? Message { get; set; }
 }
 
